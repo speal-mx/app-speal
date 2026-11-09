@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>SPEAL — Sistema integral de gestión y operación</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="App interna de SPEAL: supervisión, operación y administración.">
+  <meta property="og:title" content="SPEAL App">
+  <meta property="og:description" content="App interna de SPEAL: supervisión, operación y administración.">
+  <meta property="og:image" content="https://app.speal.mx/og.jpg">
+  <meta property="og:url" content="https://app.speal.mx/">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1C2535">
+  <meta name="apple-mobile-web-app-title" content="SPEAL">
+  <style>
+    html, body { margin: 0; height: 100%; background: #1C2535; font-family: -apple-system, 'Segoe UI', Arial, sans-serif; }
+    #carga { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; color: #C9CDD4; }
+    #carga img { width: 96px; animation: latido 1.6s ease-in-out infinite; }
+    #carga p { margin: 0; font-size: 14px; letter-spacing: .04em; }
+    #carga button { display: none; background: #F7BE2A; color: #1C2535; border: 0; border-radius: 10px; padding: 12px 22px; font-weight: 700; font-size: 14px; cursor: pointer; }
+    @keyframes latido { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.06); opacity: .85; } }
+  </style>
+  <script src="config.js"></script>
+</head>
+<body>
+  <div id="carga">
+    <img src="logo-carga.png" alt="SPEAL">
+    <p id="carga-msg">Cargando SPEAL…</p>
+    <button id="carga-btn" onclick="location.reload()">Reintentar</button>
+  </div>
+
+  <script>
+  /*
+   * PUENTE A APPS SCRIPT
+   * La app se escribió para correr dentro de Apps Script (google.script.run).
+   * Aquí se recrea google.script.run para que cada llamada viaje por internet
+   * al doPost del script (App_API.gs). Así la pantalla no cambia nada.
+   */
+  function puenteSPEAL(API) {
+    function llamar(fn, args, ok, falla) {
+      fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // así no hay "preflight" CORS
+        body: JSON.stringify({ fn: fn, args: args }),
+        redirect: 'follow'
+      })
+        .then(function (r) { return r.text(); })
+        .then(function (t) {
+          var d;
+          try { d = JSON.parse(t); } catch (e) { throw new Error(''); }
+          if (d.ok) { if (ok) ok(d.result); }
+          else { var er = new Error(d.error || 'Error'); if (falla) falla(er); else console.error(er); }
+        })
+        .catch(function (e) {
+          // Mensaje vacío = la app muestra "No se pudo conectar con el servidor…"
+          var m = e && e.message;
+          var er = new Error(m && m !== 'Failed to fetch' && m !== 'Load failed' && m !== 'NetworkError when attempting to fetch resource.' ? m : '');
+          if (falla) falla(er); else console.error(e);
+        });
+    }
+    function runner(ok, falla) {
+      return new Proxy({}, {
+        get: function (t, nombre) {
+          if (nombre === 'withSuccessHandler') return function (f) { return runner(f, falla); };
+          if (nombre === 'withFailureHandler') return function (f) { return runner(ok, f); };
+          if (nombre === 'withUserObject') return function () { return runner(ok, falla); };
+          return function () { llamar(nombre, Array.prototype.slice.call(arguments), ok, falla); };
+        }
+      });
+    }
+    window.google = { script: { get run() { return runner(null, null); }, host: { close: function () {} } } };
+    return llamar;
+  }
+
+  (function cargar() {
+    var API = (window.SPEAL_CONFIG || {}).apiUrl;
+    var llamar = puenteSPEAL(API);
+    llamar('getAppHtml', [], function (html) {
+      // Lo que va en el <head> de la app: el puente, el tamaño para celular, el título y los íconos
+      var cabeza = '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">'
+        + '<title>SPEAL — Sistema integral de gestión y operación</title>'
+        + '<link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">'
+        + '<link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="manifest" href="manifest.webmanifest">'
+        + '<meta name="theme-color" content="#1C2535">'
+        + '<script>(' + puenteSPEAL.toString() + ')(' + JSON.stringify(API) + ');<\/script>';
+      html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, function (m) { return m + cabeza; })
+                                       : '<!DOCTYPE html><html><head>' + cabeza + '</head><body>' + html + '</body></html>';
+      document.open();
+      document.write(html);
+      document.close();
+    }, function () {
+      document.getElementById('carga-msg').textContent = 'No se pudo cargar la app. Revisa tu conexión.';
+      document.getElementById('carga-btn').style.display = 'block';
+    });
+  })();
+  </script>
+</body>
+</html>
